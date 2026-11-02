@@ -425,7 +425,7 @@ function playOne(text,lang,rate,id){return new Promise(res=>{
     au.onended=au.onerror=()=>res();au.play().catch(()=>res());return}
   if(!hasTTS)return res();
   try{const u=utt(text,lang,rate);if(lang==='es'&&kid()?.track==='mini')u.volume=0.55;u.onend=u.onerror=()=>res();speechSynthesis.speak(u)}catch(e){res()}})}
-async function speakSeq(parts){stopAudio();const id=seqId;await Promise.all([loadPack('pro'),loadPack('kid'),loadPack('es')].map(p=>Promise.race([p,new Promise(r=>setTimeout(r,1500))])));
+async function speakSeq(parts){stopAudio();const id=seqId;await Promise.all([loadPack('pro'),loadPack('kid'),loadPack('es')].map(p=>Promise.race([p,new Promise(r=>setTimeout(r,10000))])));
   for(const [t,l,r] of parts){if(id!==seqId)return;if(t)await playOne(t,l,r,id)}}
 function say(text,rate){speakSeq([[text,'en',rate]])}
 function sayEs(text){speakSeq([[text,'es']])}
