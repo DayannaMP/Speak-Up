@@ -625,7 +625,7 @@ function quizV(k){
 }
 function markAnswer(ok,given){
   const k=kid(),q=V.qs[V.i];V.ans={ok,given};
-  const w=k.words[q.it[0]]||(k.words[q.it[0]]={r:0,w:0});ok?w.r++:w.w++;
+  const w=k.words[q.it[0]]||(k.words[q.it[0]]={r:0,w:0});ok?w.r++:w.w++;w.d=today();
   if(ok){V.right++;k.xp+=10;tone(true);say(q.it[0])}else tone(false);
   save();render();
 }
@@ -670,8 +670,22 @@ function reviewTab(k){
 }
 
 /* ---------- COACH (Claude) ---------- */
+function studyCtx(k){
+  const cur=nextUnit(k),u=UNITS[cur],t=today();
+  const week=u.items.map(it=>it[0]);
+  const prev=cur>0?UNITS[cur-1].items.map(it=>it[0]):[];
+  const recent=Object.entries(k.words).filter(([w,s])=>s.d&&daysBetween(s.d,t)<=7).map(([w])=>w).filter(w=>!week.includes(w)).slice(-24);
+  const hard=Object.entries(k.words).filter(([w,s])=>s.w>0&&s.w>=s.r).sort((a,b)=>(b[1].w-b[1].r)-(a[1].w-a[1].r)).map(([w])=>w).slice(0,8);
+  return{cur,u,week,prev,recent,hard};
+}
+function scnList(k){
+  const c=studyCtx(k),L=[];
+  L.push({id:'week',l:'Lo de esta semana: '+c.u.t,p:`Practice this week's unit "${c.u.t}" (${c.u.s}). Chat about her real life (school, family, shows, songs) in a way that makes her USE this week's words. Ask questions whose natural answer needs one of them. Every 4 of her messages, give a quick mini challenge: "How do you say ___ in English?" with a word from this week, then praise her.`});
+  if(c.hard.length)L.push({id:'hard',l:'Mis palabras difíciles',p:`Help her master the words she has missed in her quizzes: ${c.hard.join(', ')}. Work on ONE word at a time: use it in a short sentence, ask her a question that makes her use it, and move to the next word when she gets it right.`});
+  if(c.recent.length||c.prev.length)L.push({id:'recent',l:'Repaso de los días pasados',p:`Review words from the last days and last week: ${[...c.recent,...c.prev].slice(0,24).join(', ')}. Mix them into a fun conversation and check she still remembers them.`});
+  return L.concat(SCN.map(x=>Object.assign({},x,{p:x.p+' Use as many of this week\'s words as possible.'})));
+}
 const SCN=[
- {id:'free',l:'Platicar libre',p:'Free, friendly chat about her day, hobbies, music and shows.'},
  {id:'cartoon',l:'Mi caricatura favorita',p:'Ask about her favorite cartoon or show and its characters. Teach a useful TV phrase (like "What happened?" or "No way!") along the way.'},
  {id:'music',l:'Hablar de música',p:'Talk about songs and singers she likes. Teach song English like gonna, wanna, gotta, \'cause naturally.'},
  {id:'food',l:'Pedir comida',p:'Role-play: you are a friendly waiter at a burger place in the USA, she is the customer ordering food and drinks.'},
@@ -681,13 +695,16 @@ const SCN=[
 const chats={};
 function coachRules(k,scn){
   const done=UNITS.filter((u,i)=>unitDone(k,i)).map(u=>u.t);
-  const known=Object.keys(k.words).filter(w=>k.words[w].r>=1).slice(-60);
+  const c=studyCtx(k);
   return `You are "Coach", a warm, funny English conversation coach inside a family learning app. You are chatting with ${k.name}, ${k.age>=18?'a Mexican mom who is learning English together with her daughters':'a '+k.age+'-year-old girl from Mexico'}. Spanish is her first language and her English is beginner level.
 Units she has finished: ${done.join('; ')||'none yet (she is just starting)'}.
-English words she has practiced: ${known.join(', ')||'basic greetings'}.
+This week she is studying unit ${c.cur+1} "${c.u.t}" (${c.u.s}). THIS WEEK'S WORDS: ${c.week.join(', ')}.
+Words she studied in the last days: ${c.recent.join(', ')||'(none yet)'}. Words from her previous unit: ${c.prev.join(', ')||'(none)'}.
+Words she struggles with: ${c.hard.join(', ')||'(none yet)'}.
+Rule: every reply must reuse at least one word from THIS WEEK'S WORDS, and when it fits, one from the last days or the ones she struggles with. Only beginner vocabulary beyond these lists.
 Activity: ${scn.p}
 How to reply, every single time:
-- First write 1 to 3 short, simple English sentences (25 words max). Sound natural and modern, ${k.age>=18?'like a friendly coworker':'like a friendly older cousin'} (contractions like I'm, it's, gonna are good). Use words she knows plus at most 2 new ones.
+- First write 1 to 3 short, simple English sentences (25 words max). Sound natural and modern, ${k.age>=18?'like a friendly coworker':'like a friendly older cousin'} (contractions like I'm, it's, gonna are good). Use the lists above plus at most 1 new word.
 - End the English part with one easy question so she keeps talking.
 - Then a new line that starts with "ES:" with the Spanish translation (Mexican Spanish).
 - If she writes in Spanish, praise her, show how to say it in English ("In English: ...") and ask her to type it.
@@ -698,9 +715,9 @@ How to reply, every single time:
 function coachTab(k){
   const c=chats[k.id];
   if(sampleState==='off'||sampleState==='nokey')return `<section class="stk stage"><h2 class="acc" style="font-size:28px;font-weight:800">Coach</h2><p class="warn">${sampleState==='nokey'?'Para usar Coach, mamá o papá deben poner la clave de Gemini en Panel de familia → Esta tablet.':'El Coach necesita abrir esta página dentro de Claude con sesión iniciada y permiso para usar Claude. Mientras tanto, usen Misiones y Repaso.'}</p></section>`;
-  const scnRow=`<div class="chips">${SCN.map(s=>`<button class="chip" aria-pressed="${c?.scn===s.id}" data-act="scn" data-id="${s.id}">${esc(s.l)}</button>`).join('')}</div>`;
+  const scnRow=`<div class="chips">${scnList(k).map(s=>`<button class="chip" aria-pressed="${c?.scn===s.id}" data-act="scn" data-id="${s.id}">${esc(s.l)}</button>`).join('')}</div>`;
   if(!c)return `<section class="stk stage"><h2 class="acc" style="font-size:30px;font-weight:800">Habla con Coach</h2>
-    <p class="muted">Coach platica contigo en inglés fácil, te traduce y te corrige con buena onda. Escoge de qué quieres hablar:</p>${scnRow}
+    <p class="muted">Coach practica contigo lo que estás aprendiendo: las palabras de <b>${esc(UNITS[nextUnit(k)].t)}</b>, las de los días pasados y las que más se te dificultan. Escoge cómo quieres practicar:</p>${scnRow}
     <p class="note">La primera vez, Claude pedirá permiso a mamá para usar su cuenta.</p></section>`;
   const msgs=c.turns.map((t,i)=>bubble(t.role,t.content,i)).join('')+(c.busy?`<div class="msg bot" id="stream"><span class="en">${esc(c.stream?splitES(c.stream).en:'Coach está escribiendo…')}</span></div>`:'');
   return `<section class="stk stage">${scnRow}
@@ -720,7 +737,7 @@ function errCopy(c){return({not_granted:'Falta el permiso para usar Claude en es
 const HIDE_CODES=['not_granted','sampling_disabled','not_declared','capability_disabled','capability_removed'];
 async function coachSend(k,text,kick){
   const c=chats[k.id];if(c.busy)return;if(!sample){c.err='Conectando con Claude… intenta en unos segundos.';render();return}
-  const scn=SCN.find(s=>s.id===c.scn);
+  const scn=scnList(k).find(s=>s.id===c.scn)||scnList(k)[0];
   if(!kick){c.turns.push({role:'user',content:text});c.draft=''}
   c.busy=true;c.err='';c.stream='';c.ctl=new AbortController();render();
   const input=[{role:'user',content:coachRules(k,scn)+(kick?'\n\nStart now: greet her by name and ask the first question.':'')},...c.turns.slice(-16)];
