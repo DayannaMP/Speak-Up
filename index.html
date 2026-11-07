@@ -887,6 +887,31 @@ function dadSched(date){
   }else a('7:00 pm','Junta familiar con mamá','Progreso de las niñas, English Coins, canción y meta de la semana','junta');
   return L;
 }
+const D_SONG=['Heal the World · Michael Jackson','Man in the Mirror · Michael Jackson','Umbrella · Rihanna','Beat It · Michael Jackson','Diamonds · Rihanna','Black or White · Michael Jackson','Rock with You · Michael Jackson','Lift Me Up · Rihanna','Remember the Time · Michael Jackson','Homecoming (clean) · Ye','La eligen ellas (clean) · Teezo Touchdown','Stronger (clean) · Ye'];
+function dadGuide(w,date){
+  const u=UNITS[w-1],prev=w>1?UNITS[w-2]:null;
+  const day=(new Date(date+'T12:00').getDay()+6)%7;
+  const ex=[0,1,2,3].map(i=>u.items[(day*4+i)%16]);
+  const hard={};state.kids.filter(k=>k.track==='pro').forEach(k=>Object.entries(k.words||{}).forEach(([wd,st])=>{if(st.w>0&&st.w>=st.r){(hard[wd]=hard[wd]||[]).push(k.name)}}));
+  const all=UNITS.flatMap(x=>x.items),mean=wd=>(all.find(it=>it[0]===wd)||[])[1]||'';
+  const H=Object.entries(hard).slice(0,8);
+  return `<section class="stk stage"><span class="label">Tu guía: lo que están aprendiendo</span>
+  <h2 class="acc" style="font-size:26px;font-weight:800">Semana ${w} · ${esc(u.t)}</h2><p class="muted">${esc(u.s)}. Usa estas palabras en el desayuno, la mesa y el show: son las que ellas acaban de aprender, así que pueden entenderte y contestarte.</p>
+  <div class="wchips">${u.items.map(it=>`<button class="wc" data-act="say" data-t="${esc(it[0])}"><span class="w">${esc(it[0])}</span><span class="m">${esc(it[1])}</span></button>`).join('')}</div>
+  <span class="label">Frases para usar hoy</span>
+  ${ex.map(it=>`<div class="ex"><span class="en">${esc(it[2])}</span><span class="es">${esc(it[3])}</span></div>`).join('')}
+  ${H.length?`<span class="label">Les cuesta trabajo: repítelas más</span><div class="wchips">${H.map(([wd,ns])=>`<button class="wc" data-act="say" data-t="${esc(wd)}"><span class="w">${esc(wd)}</span><span class="m">${esc(mean(wd))}</span><span class="nt">${esc(ns.join(', '))}</span></button>`).join('')}</div>`:''}
+  ${prev?`<p class="note"><b>Semana pasada (${esc(prev.t)}):</b> ${esc(prev.items.map(it=>it[0]).join(', '))}</p>`:''}
+  <p class="note"><b>Canción de la semana:</b> ${esc(D_SONG[w-1])}. Pregúntales qué significa una línea.</p>
+  </section>
+  <section class="stk stage"><span class="label">Cómo hacer que participen</span>
+  <ol style="margin:0;padding-left:22px;display:flex;flex-direction:column;gap:8px">
+  <li><b>Pregunta y espera.</b> Haz una pregunta corta con las palabras de la semana y espera su respuesta en inglés. El silencio está bien: cuenta hasta 5.</li>
+  <li><b>Si contestan en español,</b> dales la frase en inglés y pídeles que la repitan: “In English: I'm tired. Say it!”</li>
+  <li><b>Pide respuestas completas,</b> no solo “yes”: “Yes, I'm happy” vale más.</li>
+  <li><b>Con Aisha y Cucu,</b> señala cosas y pregunta: “What color is it?”, “Where is the dog?”. Basta con que señalen o digan una palabra.</li>
+  <li><b>Corrige repitiendo bien la frase</b> y sigue platicando, sin explicar gramática.</li></ol></section>`;
+}
 function dadV(k){
   const date=V.date||today(),mon=addD(date,-((new Date(date+'T12:00').getDay()+6)%7)),L=dadSched(date),done=(k.dad||{})[date]||{},w=dWeek(date);
   const keyed=L.filter(x=>x.key),dn=keyed.filter(x=>done[x.key]).length;
@@ -898,6 +923,7 @@ function dadV(k){
     <p class="muted">En estos horarios habla solo inglés y nunca traduce. Si no le entienden, lo dice más lento o con señas.</p>
     <div class="dlist">${L.length?L.map(x=>`<div class="drow ${x.key&&done[x.key]?'done':''}"><span class="dt">${x.t}</span><div class="dw"><b>${esc(x.h)}</b>${x.p?`<span>${esc(x.p)}</span>`:''}</div>${x.key?`<button class="dck" role="checkbox" aria-checked="${!!done[x.key]}" aria-label="Hecho: ${esc(x.h)}" data-act="dadCk" data-v="${x.key}">✓</button>`:'<span></span>'}</div>`).join(''):'<p class="muted">Este día no hay actividades.</p>'}</div>
   </section>
+  ${dadGuide(w,date)}
   <section class="stk stage"><span class="label">Preguntas de la semana ${w}</span>${D_Q[w-1].map(q=>`<div class="tip" style="font-weight:700;font-size:18px">${esc(q)}</div>`).join('')}
   <p class="note">Cómo corrige: repite la frase bien dicha y sigue platicando, sin burlas. “I goed to the park.” → “Oh, you went to the park? Cool!”</p></section>`;
 }
