@@ -128,6 +128,15 @@ p{margin:0}
 .track.cur{background:var(--sunk)}
 .track.cur .n{color:var(--kc)}
 .track.lock{opacity:.5;cursor:not-allowed}
+.dlist{display:flex;flex-direction:column}
+.drow{display:grid;grid-template-columns:76px minmax(0,1fr) auto;gap:12px;align-items:start;padding:14px 0;border-top:1.5px solid var(--line)}
+.drow:first-child{border-top:0}
+.drow .dt{font-family:var(--accent);font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums}
+.drow .dw b{display:block;font-size:17px}
+.drow .dw span{color:var(--muted);font-size:15px}
+.drow.done .dw b{text-decoration:line-through;color:var(--muted)}
+.dck{width:34px;height:34px;border-radius:10px;border:2px solid var(--line);background:var(--surface);color:transparent;font-weight:800;font-size:18px}
+.dck[aria-checked="true"]{background:var(--good);border-color:var(--good);color:#fff}
 .tag{font-size:13px;font-weight:700;padding:4px 10px;border-radius:999px;white-space:nowrap}
 .tag.done{background:var(--good-bg);color:var(--good)}
 .tag.now{background:var(--kc);color:var(--kon)}
@@ -314,8 +323,8 @@ const ICON_SPEAK='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" str
 /* ============ STATE ============ */
 const KEY='speakup-club-v1';
 function newKid(id,name,age,track,color){return{id,name,age,track,color,xp:0,streak:0,lastDay:'',start:today(),units:{},words:{},stars:0,miniPlays:{},songLines:0,chats:0}}
-function defaults(){return{v:1,updatedAt:0,kids:[newKid('k1','Saki',11,'pro','sun'),newKid('k2','Joy',10,'pro','pop'),newKid('k3','Aisha',5,'mini','orange'),newKid('k4','Cucu',3,'mini','sun'),newKid('k5','Mamá',39,'pro','green')],fix1:true}}
-function migrate(s){const d=defaults();if(!s||!Array.isArray(s.kids))return d;s.kids=s.kids.map((k,i)=>Object.assign(newKid(k.id||('k'+i),'',8,'pro','pop'),k));if(!s.kids.some(k=>k.id==='k5'))s.kids.push(newKid('k5','Mamá',35,'pro','green'));if(!s.fix1){s.kids.forEach(k=>{if(/^aisha$/i.test((k.name||'').trim()))k.color='orange';if(k.id==='k5'&&k.color==='lime')k.color='green'});s.fix1=true}return s}
+function defaults(){return{v:1,updatedAt:0,kids:[newKid('k1','Saki',11,'pro','sun'),newKid('k2','Joy',10,'pro','pop'),newKid('k3','Aisha',5,'mini','orange'),newKid('k4','Cucu',3,'mini','sun'),newKid('k5','Mamá',39,'pro','green'),newKid('k6','Papá',40,'dad','sky')],fix1:true}}
+function migrate(s){const d=defaults();if(!s||!Array.isArray(s.kids))return d;s.kids=s.kids.map((k,i)=>Object.assign(newKid(k.id||('k'+i),'',8,'pro','pop'),k));if(!s.kids.some(k=>k.id==='k5'))s.kids.push(newKid('k5','Mamá',35,'pro','green'));if(!s.kids.some(k=>k.id==='k6'))s.kids.push(newKid('k6','Papá',40,'dad','sky'));if(!s.fix1){s.kids.forEach(k=>{if(/^aisha$/i.test((k.name||'').trim()))k.color='orange';if(k.id==='k5'&&k.color==='lime')k.color='green'});s.fix1=true}return s}
 let state=defaults();
 try{const raw=localStorage.getItem(KEY);if(raw)state=migrate(JSON.parse(raw))}catch(e){}
 function persistLocal(){try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){}}
@@ -338,6 +347,24 @@ function mergeRemote(docs){let changed=false,activeChanged=false;
     lastSent[r.id]=body(r)});
   if(changed){state.kids.sort((a,b)=>a.id.localeCompare(b.id));persistLocal();
     if(!activeChanged&&(V.s==='home'||V.s==='parent'))render()}}
+/* sync for the installed app: Firebase Firestore over REST (config filled in once the family project exists) */
+const FB={apiKey:'',projectId:'',family:'fam-8542f6ce722c4004716b'};
+function fbDb(){
+  if(!FB.apiKey||!FB.projectId)return null;
+  const base=`https://firestore.googleapis.com/v1/projects/${FB.projectId}/databases/(default)/documents/families/${FB.family}`,key='key='+encodeURIComponent(FB.apiKey);
+  const toDoc=j=>({id:(j.name||'').split('/').pop(),data:()=>({blob:j.fields?.blob?.stringValue||'',updatedAt:+(j.fields?.updatedAt?.integerValue||0)})});
+  const col=name=>({
+    get:async()=>{const r=await fetch(`${base}/${name}?pageSize=100&${key}`,{cache:'no-store'});if(!r.ok)throw r.status;const j=await r.json();const docs=(j.documents||[]).map(toDoc);return{empty:!docs.length,docs}},
+    onSnapshot:(fn)=>{const tick=async()=>{try{const q=await col(name).get();fn(q);syncState='cloud';scheduleDb()}catch(e){}};setInterval(tick,15000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)tick()});addEventListener('online',tick);return()=>{}}
+  });
+  return{
+    doc:path=>({
+      get:async()=>{const r=await fetch(`${base}/${path}?${key}`,{cache:'no-store'});if(r.status===404)return{exists:false,data:()=>({})};if(!r.ok)throw r.status;const d=toDoc(await r.json());return{exists:true,data:d.data}},
+      set:async v=>{const r=await fetch(`${base}/${path}?${key}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields:{blob:{stringValue:v.blob||''},updatedAt:{integerValue:String(v.updatedAt||Date.now())}}})});if(!r.ok)throw r.status}
+    }),
+    collection:col
+  };
+}
 let sample=null,sampleState='loading';
 /* standalone app (installed outside Claude): Coach and Song Lab use Gemini with a key saved on this tablet */
 const STANDALONE=!window.claude;
@@ -367,9 +394,11 @@ function setupGemini(){
 }
 (async()=>{
   const c=window.claude;
-  if(!c||!c.use){setupGemini();return}
-  c.use('sample').then(s=>{sample=s;sampleState=s?'ok':'off';if(V.tab==='coach'||V.tab==='song')render()}).catch(()=>{sampleState='off'});
-  try{db=await c.use('db')}catch(e){db=null}
+  if(!c||!c.use){setupGemini();db=fbDb()}
+  else{
+    c.use('sample').then(s=>{sample=s;sampleState=s?'ok':'off';if(V.tab==='coach'||V.tab==='song')render()}).catch(()=>{sampleState='off'});
+    try{db=await c.use('db')}catch(e){db=null}
+  }
   if(!db)return;
   try{
     const qs=await db.collection('kids').get();
@@ -457,6 +486,7 @@ function render(){
     case 'quiz':h=quizV(k);break;
     case 'result':h=resultV(k);break;
     case 'mini':h=miniV(k);break;
+    case 'dad':h=dadV(k);break;
     case 'miniCat':h=miniCatV(k);break;
     case 'miniGame':h=miniGameV(k);break;
     case 'parent':h=parentV();break;
@@ -476,6 +506,8 @@ function homeV(){
   <h1 class="ask">Who's learning today?<small>¿Quién aprende hoy?</small></h1>
   <div class="kids ${tabletKids().length<=2?'two':''}">${tabletKids().map(k=>{
     const pro=k.track==='pro';const d=doneCount(k);
+    if(k.track==='dad'){const L=dadSched(today()).filter(x=>x.key),dn=L.filter(x=>(k.dad||{})[today()]?.[x.key]).length;
+      return `<button class="stk kidcard c-${k.color}" data-act="open" data-id="${k.id}"><span class="av">${esc((k.name||'?').trim().charAt(0).toUpperCase())}</span><span class="nm">${esc(k.name)}</span><span class="meta">Sus actividades de hoy</span><span class="meta">${L.length?dn+' de '+L.length+' hechas':'Hoy descansa'}</span><span class="prog bar"><i style="width:${L.length?Math.round(dn/L.length*100):0}%"></i></span></button>`}
     return `<button class="stk kidcard c-${k.color}" data-act="open" data-id="${k.id}">
       <span class="av">${esc((k.name||'?').trim().charAt(0).toUpperCase())}</span>
       <span class="nm">${esc(k.name)}</span>
@@ -490,7 +522,7 @@ function homeV(){
 function topBar(k,extra=''){
   return `<div class="top"><button class="btn sm ghost" data-act="home">← Cambiar</button>
   <div class="who"><span class="dot">${esc(k.name.trim().charAt(0).toUpperCase())}</span><b>${esc(k.name)}</b></div>
-  ${extra}${k.track==='pro'?`<span class="pill">${k.xp} XP</span><span class="pill ${k.streak>1?'hot':''}">Racha ${k.streak} ${k.streak===1?'día':'días'}</span>`:`<span class="pill hot">★ ${k.stars}</span>`}</div>`;
+  ${extra}${k.track==='dad'?'':k.track==='pro'?`<span class="pill">${k.xp} XP</span><span class="pill ${k.streak>1?'hot':''}">Racha ${k.streak} ${k.streak===1?'día':'días'}</span>`:`<span class="pill hot">★ ${k.stars}</span>`}</div>`;
 }
 function proV(k){
   const tab=V.tab||'mission';
@@ -810,6 +842,48 @@ function miniGameV(k){
   <div class="game-opts ${V.opts.length===3?'three':''}">${V.opts.map(i=>`<button class="it ${V.won&&i===V.target?'win pop':''}" data-act="miniPick" data-i="${i}" id="g${i}">${visual(V.cat,c.items[i])}${k.age<=3?'':`<span class="n">${esc(c.items[i][0])}</span>`}</button>`).join('')}</div></section>`;
 }
 
+/* ---------- PAPÁ ---------- */
+const D_START='2026-11-02';
+const addD=(s,n)=>{const d=new Date(s+'T12:00');d.setDate(d.getDate()+n);return dstr(d)};
+const D_Q=[["How are you today?","What's your favorite color?","Can you say “thank you” to Mom?"],["Are you happy or sad today?","Are you tired?","What makes you excited?"],["Who is your best friend?","Tell me about your sister.","Who is the funniest in our family?"],["What do you want for dinner?","What do you like to do after school?","What do you need for tomorrow?"],["What are you gonna do tomorrow?","What do you wanna eat this weekend?","What do you gotta do tonight?"],["What happened at school?","Who is your favorite character?","Why do you like that show?"],["What do you do every day?","What are we doing tonight?","Where do you want to go tomorrow?"],["What can you do really well?","What can't you do yet?","What don't you like to eat?"],["What did you do today?","Where did you go?","What did your teacher say?"],["What song do you love right now?","What's your dream?","What makes you smile?"],["Is this food fire?","What's the vibe at school?","No cap, what was the best part of your day?"],["What's your favorite beat?","Can you rhyme with “cat”?","What's your big dream?"]];
+const D_ACT=['Simon says','I spy','Cocinar hot cakes con la receta en inglés','Evaluación + trivia con Alexa','Ir al súper y nombrar todo en inglés','20 preguntas','Cocinar con la receta en inglés','Evaluación + karaoke de la canción','Simon says avanzado','Súper en inglés','Juego de mesa en inglés','Examen final + fiesta'];
+const D_CLASS_FRI=['2026-11-06','2026-11-20','2026-12-04','2026-12-18','2027-01-15'];
+const dWeek=date=>Math.max(1,Math.min(12,Math.floor(daysBetween(D_START,addD(date,-((new Date(date+'T12:00').getDay()+6)%7)))/7)+1));
+function dadSched(date){
+  const d=(new Date(date+'T12:00').getDay()+6)%7,w=dWeek(date),L=[];
+  if(date<D_START||date>'2027-01-24')return L;
+  const a=(t,h,p,key)=>L.push({t,h,p,key});
+  if(d<5){
+    const cls=d===0||d===2||(d===4&&D_CLASS_FRI.includes(date)),late=date==='2026-11-13';
+    a('7:30','Good morning','“Good morning!” a cada hija, solo en inglés','gm');
+    a('7:45','Desayuno en inglés',cls?'2 preguntas a cada hija + 1 extra para Saki y Joy. Termina 7:55':'2 preguntas en inglés a cada hija. Termina 7:55','bkf');
+    a('8:00','Live','Hasta las 9:00',null);
+    if(late){a('6:30 pm','Mesa en inglés con todas','Qué película van a ver hoy y por qué','mesa');a('7:00 pm','Clase','',null)}
+    else if(cls){a('5:45 pm','Mesa con Aisha, Cucu y mamá',['Las 3 preguntas de la semana + usar 3 palabras del track','','Que cada una cuente su día en 3 frases','','Qué película van a ver hoy y por qué'][d],'mesa');a('6:00 pm','Clase','Hasta las 8:00',null)}
+    else a('7:30 pm','Mesa en inglés con todas',['','Preguntar “What does ___ mean?” con palabras del track','','Juego del mesero: ellas piden la cena en inglés','Platicar en inglés de la película de Movie Night'][d],'mesa');
+    a('8:00 pm','Cuento en inglés','A Aisha y Cucu, 10 minutos','story');
+  }else if(d===5){
+    a('10:00','English Show','Es el juez: califica de 1 a 3 en pronunciación, entendió y se atrevió','show');
+    if(w===4||w===8||w===12)a('10:45',w===12?'Examen final':'Evaluación','Aplicar la evaluación de la semana '+w,'eval');
+    a('11:00','Actividad en inglés',D_ACT[w-1],'act');
+  }else a('7:00 pm','Junta familiar con mamá','Progreso de las niñas, English Coins, canción y meta de la semana','junta');
+  return L;
+}
+function dadV(k){
+  const date=V.date||today(),mon=addD(date,-((new Date(date+'T12:00').getDay()+6)%7)),L=dadSched(date),done=(k.dad||{})[date]||{},w=dWeek(date);
+  const keyed=L.filter(x=>x.key),dn=keyed.filter(x=>done[x.key]).length;
+  const DSH=['L','M','X','J','V','S','D'],DN=['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
+  return topBar(k,`<span class="pill">${dn} de ${keyed.length} hechas</span>`)+`
+  <div class="tabs" role="group" aria-label="Día">${DSH.map((l,i)=>{const s=addD(mon,i);return `<button aria-selected="${s===date}" data-act="dadDate" data-v="${s}">${l} ${new Date(s+'T12:00').getDate()}</button>`}).join('')}</div>
+  <section class="stk stage">
+    <div class="row" style="justify-content:space-between"><h2 class="acc" style="font-size:28px;font-weight:800">${DN[(new Date(date+'T12:00').getDay()+6)%7]} ${new Date(date+'T12:00').getDate()}</h2><span class="pill">Semana ${w} de 12</span></div>
+    <p class="muted">En estos horarios habla solo inglés y nunca traduce. Si no le entienden, lo dice más lento o con señas.</p>
+    <div class="dlist">${L.length?L.map(x=>`<div class="drow ${x.key&&done[x.key]?'done':''}"><span class="dt">${x.t}</span><div class="dw"><b>${esc(x.h)}</b>${x.p?`<span>${esc(x.p)}</span>`:''}</div>${x.key?`<button class="dck" role="checkbox" aria-checked="${!!done[x.key]}" aria-label="Hecho: ${esc(x.h)}" data-act="dadCk" data-v="${x.key}">✓</button>`:'<span></span>'}</div>`).join(''):'<p class="muted">Este día no hay actividades.</p>'}</div>
+  </section>
+  <section class="stk stage"><span class="label">Preguntas de la semana ${w}</span>${D_Q[w-1].map(q=>`<div class="tip" style="font-weight:700;font-size:18px">${esc(q)}</div>`).join('')}
+  <p class="note">Cómo corrige: repite la frase bien dicha y sigue platicando, sin burlas. “I goed to the park.” → “Oh, you went to the park? Cool!”</p></section>`;
+}
+
 /* ---------- PARENT ---------- */
 function tabletPanel(){
   return `<section class="stk pcard"><h2 class="acc" style="font-size:24px;font-weight:800">Esta tablet</h2>
@@ -817,7 +891,7 @@ function tabletPanel(){
     <div style="display:flex;flex-direction:column;gap:8px;min-width:0"><span class="label">Perfiles en esta tablet</span>${state.kids.map(k=>`<label class="switch"><input type="checkbox" class="tabOwn" value="${k.id}" ${TAB.owners.includes(k.id)?'checked':''}> ${esc(k.name)}</label>`).join('')}<span class="note">Sin ninguna marcada, se ven todas.</span></div>
     <label>Clave de Gemini (para Coach y Song Lab)<input id="gkey" type="password" autocomplete="off" placeholder="AIza…" value="${esc(TAB.gkey)}" style="padding:10px 12px;border-radius:12px;border:2px solid var(--line);background:var(--surface);font-size:15px;color:var(--ink);width:100%"></label>
   </div>
-  <p class="note">${TAB.gkey?(sampleState==='ok'?'Coach y Song Lab están activos en esta tablet.':'Clave guardada.'):'Sin clave, Song Lab usa el diccionario de la app y Coach queda apagado.'} El progreso de esta app se guarda en esta tablet.</p>
+  <p class="note">${TAB.gkey?(sampleState==='ok'?'Coach y Song Lab están activos en esta tablet.':'Clave guardada.'):'Sin clave, Song Lab usa el diccionario de la app y Coach queda apagado.'} ${FB.apiKey?(syncState==='cloud'?'El progreso se comparte entre todos los dispositivos.':'El progreso se guarda aquí y se comparte en cuanto haya internet.'):'El progreso de esta app se guarda en esta tablet.'}</p>
   </section>`;
 }
 function voicePanel(){
@@ -846,12 +920,13 @@ function parentV(){
     <div class="pform">
       <label>Nombre<input id="nm-${k.id}" data-f="name" data-id="${k.id}" value="${esc(k.name)}" maxlength="18"></label>
       <label>Edad<input id="ag-${k.id}" type="number" min="2" max="99" inputmode="numeric" data-f="age" data-id="${k.id}" value="${k.age}"></label>
-      <label>Modo<select id="tr-${k.id}" data-f="track" data-id="${k.id}"><option value="pro" ${pro?'selected':''}>Misiones (7+)</option><option value="mini" ${pro?'':'selected'}>Juegos con voz (2–6)</option></select></label>
+      <label>Modo<select id="tr-${k.id}" data-f="track" data-id="${k.id}"><option value="pro" ${pro?'selected':''}>Misiones (7+)</option><option value="mini" ${!pro&&k.track!=='dad'?'selected':''}>Juegos con voz (2–6)</option><option value="dad" ${k.track==='dad'?'selected':''}>Actividades de papá</option></select></label>
       <label>Color<select id="co-${k.id}" data-f="color" data-id="${k.id}">${[['pop','Rosa'],['sky','Azul'],['mint','Menta'],['sun','Amarillo'],['orange','Naranja'],['green','Verde'],['lime','Lima']].map(([v,l])=>`<option value="${v}" ${k.color===v?'selected':''}>${l}</option>`).join('')}</select></label>
     </div>
     ${pro?`<div class="kv"><div><b>${d}/12</b><span>tracks</span></div><div><b>${lw}</b><span>palabras dominadas</span></div><div><b>${k.xp}</b><span>XP</span></div><div><b>${k.streak}</b><span>días de racha</span></div><div><b>${k.songLines}</b><span>líneas de canciones</span></div><div><b>${k.chats}</b><span>mensajes al Coach</span></div></div>
     <div class="pace ${d>=exp-1?'ok':'no'}">Semana ${Math.min(wk,12)} de 12 · ${d>=exp?'Va al día':d>=exp-1?'Va casi al día':'Va atrasada '+(exp-d)+' tracks: que haga uno extra el fin de semana'}</div>
     <div><span class="label">Meta de 3 meses · ${end(k)}</span><ul class="goals" style="margin-top:8px">${goals.map(([ok,t])=>`<li><span class="ck ${ok?'on':''}">${ok?'✓':''}</span><span>${esc(t)}</span></li>`).join('')}</ul></div>`
+    :k.track==='dad'?(()=>{const mon=addD(today(),-((new Date(today()+'T12:00').getDay()+6)%7));let t=0,dn=0;for(let i=0;i<7;i++){const dd=addD(mon,i);dadSched(dd).filter(x=>x.key).forEach(x=>{t++;if((k.dad||{})[dd]?.[x.key])dn++})}return `<div class="kv"><div><b>${dn}/${t}</b><span>actividades hechas esta semana</span></div></div>`})()
     :`<div class="kv"><div><b>${k.stars}</b><span>estrellas</span></div><div><b>${Object.keys(k.miniPlays).length}/6</b><span>temas jugados</span></div></div>`}
     <div class="row">${V.confirm===k.id?`<span class="note">¿Borrar todo el progreso de ${esc(k.name)}?</span><button class="btn sm" data-act="resetYes" data-id="${k.id}" style="background:var(--bad);color:#fff">Sí, borrar</button><button class="btn sm ghost" data-act="resetNo">Cancelar</button>`:`<button class="btn sm ghost" data-act="resetAsk" data-id="${k.id}">Reiniciar progreso</button>`}</div>
     </section>`}).join('')}
@@ -873,7 +948,9 @@ function parentV(){
 const A={
   home:()=>go({s:'home'}),
   parent:()=>go({s:'parent'}),
-  open:d=>{const k=state.kids.find(x=>x.id===d.id);go(k.track==='pro'?{s:'pro',kid:k.id,tab:'mission'}:{s:'mini',kid:k.id})},
+  open:d=>{const k=state.kids.find(x=>x.id===d.id);go(k.track==='pro'?{s:'pro',kid:k.id,tab:'mission'}:k.track==='dad'?{s:'dad',kid:k.id,date:today()}:{s:'mini',kid:k.id})},
+  dadDate:d=>{V.date=d.v;render()},
+  dadCk:d=>{const k=kid();const day=V.date;k.dad=k.dad||{};const m=Object.assign({},k.dad[day]||{});if(m[d.v])delete m[d.v];else{m[d.v]=true;tone(true)}k.dad[day]=m;save();render()},
   tab:d=>go({s:'pro',kid:V.kid,tab:d.tab}),
   say:d=>say(d.t,d.slow?.6:undefined),
   sayEs:d=>sayEs(d.t),
